@@ -127,7 +127,7 @@ defaultCommands =
       let req = prev.contextRequest { Louter.reqModel = T.pack modelName }
           newContext = prev {contextRequest = req}
       setContext @p newContext
-      termOutput $ "Model set to: " <> T.pack modelName
+      termOutput $ "Model set to: " <> T.pack modelName <> "\n"
 
     handleSetTimeout timeout = do
       env <- get
@@ -350,7 +350,7 @@ runRepl' extraSpecs = do
         let result = parse (choice $ cmdParser <$> allSpecs) "stdin" (T.pack input)
         in case result of
              Right action -> action >> runRepl' @p extraSpecs
-             Left err -> termOutput ("Unknown command: " <> T.pack (errorBundlePretty err)) >> runRepl' @p extraSpecs
+             Left err -> termOutput ("Unknown command: " <> T.pack (errorBundlePretty err) <> "\n") >> runRepl' @p extraSpecs
         else 
           callInput @p (T.pack input) >> runRepl' @p extraSpecs
 
