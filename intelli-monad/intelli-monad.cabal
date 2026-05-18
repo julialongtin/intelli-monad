@@ -116,6 +116,23 @@ executable intelli-monad
     hs-source-dirs:   app
     default-language: Haskell2010
 
+executable intelli-monad-plus
+    import:           warnings
+    main-is:          replPlus.hs
+    ghc-options:      -rtsopts -threaded -g
+    build-depends:
+        aeson,
+        base == 4.*,
+        intelli-monad,
+        louter,
+        megaparsec,
+        optparse-applicative,
+        text,
+        process,
+        persistent-sqlite
+    hs-source-dirs:   app
+    default-language: Haskell2010
+
 executable calc
     import:           warnings
     main-is:          calc.hs
