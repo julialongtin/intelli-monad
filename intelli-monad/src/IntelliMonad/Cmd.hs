@@ -28,7 +28,7 @@ import Data.Text (Text, pack)
 
 import Database.Persist.Sqlite (SqliteConf)
 
-import Options.Applicative (argument, customExecParser, fullDesc, info, metavar, prefs, progDesc, showHelpOnEmpty, str)
+import Options.Applicative (argument, customExecParser, fullDesc, info, metavar, prefs, progDesc, showDefault, showHelpOnEmpty, str, value)
 
 import System.Environment (lookupEnv)
 
@@ -54,7 +54,7 @@ main = do
       Just model -> return $ pack model
       Nothing -> return config.model
 
-  let cmdline = argument str (metavar "SESSION_NAME")
+  let cmdline = argument str (metavar "SESSION_NAME" <> value "default" <> showDefault)
       runCmd :: forall p. (PersistentBackend p) => Text -> Text -> IO ()
       runCmd model sessionName = runRepl @p defaultTools [] [] sessionName (fromModel model) []
 
