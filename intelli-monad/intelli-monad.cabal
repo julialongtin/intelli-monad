@@ -35,25 +35,28 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  IntelliMonad.Prompt
-                    , IntelliMonad.BaseTypes
-                    , IntelliMonad.Types
-                    , IntelliMonad.Tools
-                    , IntelliMonad.ToolPolicy
-                    , IntelliMonad.ToolPolicy.Types
-                    , IntelliMonad.ToolPolicy.Utils
-                    , IntelliMonad.Tools.Arxiv
-                    , IntelliMonad.Tools.Bash
-                    , IntelliMonad.Tools.Utils
-                    , IntelliMonad.Tools.KeyValue
-                    , IntelliMonad.Persist
-                    , IntelliMonad.Repl
-                    , IntelliMonad.Cmd
-                    , IntelliMonad.Config
-                    , IntelliMonad.CustomInstructions
+    exposed-modules:
+                  , IntelliMonad.Consume
+                  , IntelliMonad.Cmd
+                  , IntelliMonad.Tools.Arxiv
 
     -- Modules included in this library but not exported.
-    -- other-modules:
+    other-modules:
+                  , IntelliMonad.BaseTypes
+                  , IntelliMonad.Config
+                  , IntelliMonad.CustomInstructions
+                  , IntelliMonad.Parser
+                  , IntelliMonad.Persist
+                  , IntelliMonad.Prompt
+                  , IntelliMonad.Repl
+                  , IntelliMonad.Tools
+                  , IntelliMonad.ToolPolicy
+                  , IntelliMonad.ToolPolicy.Types
+                  , IntelliMonad.ToolPolicy.Utils
+                  , IntelliMonad.Tools.Bash
+                  , IntelliMonad.Tools.Utils
+                  , IntelliMonad.Tools.KeyValue
+                  , IntelliMonad.Types
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

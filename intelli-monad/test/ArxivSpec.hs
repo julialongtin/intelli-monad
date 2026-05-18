@@ -3,11 +3,19 @@
 
 module ArxivSpec (spec) where
 
-import IntelliMonad.Tools.Arxiv
-import IntelliMonad.Types
-import IntelliMonad.Prompt
-import IntelliMonad.Persist
+import Prelude (IO, Maybe(Just), (.), ($), (>), (<=), (<$>), length, not, null, show)
 import Test.Hspec
+
+import Data.Text.IO (getLine, putStr)
+
+import IntelliMonad.Tools.Arxiv
+
+import IntelliMonad.Consume (JSONSchema(schema), MonadTerminal(termOutput, termInput), Schema(Object'), StatelessConf, defaultRequest, runPrompt, toolExec)
+
+-- short circuit MonadTerminal to the Text library.
+instance MonadTerminal IO where
+  termOutput  = putStr
+  termInput _ = Just <$> getLine
 
 spec :: Spec
 spec = do
@@ -19,7 +27,7 @@ spec = do
           Object' fields -> do
             length fields `shouldBe` 3
             -- Check that all expected fields are present
-            let fieldNames = map (\(name, _, _) -> name) fields
+            let fieldNames = (\(name, _, _) -> name) <$> fields
             fieldNames `shouldContain` ["searchQuery"]
             fieldNames `shouldContain` ["maxResults"]
             fieldNames `shouldContain` ["start"]

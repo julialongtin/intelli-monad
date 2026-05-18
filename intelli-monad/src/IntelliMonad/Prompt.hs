@@ -27,11 +27,11 @@ module IntelliMonad.Prompt
     getTools,
     initializePrompt,
     push,
+    showContents,
     setContext,
     user,
     runPrompt,
-    runPromptWithValidation,
-    showContents
+    runPromptWithValidation
   )
 where
 
@@ -53,7 +53,7 @@ import qualified Data.ByteString as BS (fromStrict, readFile, toStrict)
 
 import qualified Data.ByteString.Base64 as Base64 (encode)
 
-import qualified Data.Map as M (fromList, lookup)
+import qualified Data.Map as M (fromList, lookup, mapWithKey)
 
 import Data.Maybe (Maybe(Just, Nothing))
 
@@ -75,7 +75,7 @@ import qualified Louter.Types.Request as Louter (ChatRequest)
 
 import qualified System.IO as IO (hFlush, stdout)
 
-import IntelliMonad.BaseTypes (Content(Content), Contents, Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens), CustomInstructionProxy, FinishReason(FunctionCall, Length, Stop, ToolCalls), defaultUTCTime, HasFunctionObject, Hook(preHook, postHook), HookProxy(HookProxy), JSONSchema(schema), Message(Message, ToolCall, ToolReturn, Image), PersistProxy(PersistProxy), PersistentBackend(Conn, config, initialize, load, save, saveContents), Prompt, PromptEnv(PromptEnv, backend, context, customInstructions, hooks, inputCallback, outputCallback, timeoutSeconds, tools), Tool(Output, toolFunctionName), ToolProxy(ToolProxy), User(User), userToText)
+import IntelliMonad.BaseTypes (Content(Content), Contents, Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens), CustomInstructionProxy, FinishReason(FunctionCall, Length, Stop, ToolCalls), defaultUTCTime, HasFunctionObject, Hook(preHook, postHook), HookProxy(HookProxy), JSONSchema(schema), Message(Message, ToolCall, ToolReturn, Image), MonadTerminal, PersistProxy(PersistProxy), PersistentBackend(Conn, config, initialize, load, save, saveContents), Prompt, PromptEnv(PromptEnv, backend, context, customInstructions, hooks, inputCallback, outputCallback, timeoutSeconds, tools), Tool(Output, toolFunctionName), ToolProxy(ToolProxy), User(User), userToText)
 
 import IntelliMonad.Config (readConfig)
 import qualified IntelliMonad.Config as Config (getUseStreaming)
@@ -88,7 +88,7 @@ import IntelliMonad.Tools.Utils (findToolCall, tryToolExec)
 
 import IntelliMonad.Types (addTools, fromModel, runRequest, runRequestStreaming, toAeson, updateRequest)
 
-import IntelliMonad.ToolPolicy (defaultRegistry, checkPolicy)
+import IntelliMonad.ToolPolicy (ToolRegistry(ToolRegistry, rawRegistry), defaultRegistry, checkPolicy, toolPolicy)
 
 getContext :: (MonadIO m, MonadFail m) => Prompt m Context
 getContext = context <$> get
@@ -161,7 +161,7 @@ callPostHook = do
   forM_ env.hooks $ \(HookProxy (h :: h)) -> do
     postHook @h @p h
 
-call :: forall p m. (MonadIO m, MonadFail m, PersistentBackend p) => Prompt m Contents
+call :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => Prompt m Contents
 call = loop []
   where
     loop ret = do
@@ -216,7 +216,7 @@ call = loop []
       v <- call @p
       return $ ret <> allResults <> v
 
-callWithText :: forall p m. (MonadIO m, MonadFail m, PersistentBackend p) => Text -> Prompt m Contents
+callWithText :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => Text -> Prompt m Contents
 callWithText input = do
   time <- liftIO getCurrentTime
   context <- getContext
@@ -224,21 +224,30 @@ callWithText input = do
   push @p contents
   call @p
 
-callWithContents :: forall p m. (MonadIO m, MonadFail m, PersistentBackend p) => Contents -> Prompt m Contents
+callWithContents :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => Contents -> Prompt m Contents
 callWithContents input = do
   push @p input
   call @p
 
-initializePrompt :: forall p m. (MonadIO m, MonadFail m, PersistentBackend p) => [ToolProxy] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> m PromptEnv
+initializePrompt :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => [ToolProxy] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> m PromptEnv
 initializePrompt tools customs sessionName req = do
 --  config <- readConfig
   let settings = addTools tools req
   withDB @p $ \conn -> do
     load @p conn sessionName >>= \case
-      Just v ->
+      Just v ->do
+        -- merge our policies with our runtime tools.
+        let liveMap = (defaultRegistry tools).rawRegistry
+            savedMap = v.contextToolbox.rawRegistry
+            merged   = ToolRegistry $ M.mapWithKey
+                       (\name entry ->
+                          case M.lookup name savedMap of
+                            Just saved -> entry { toolPolicy = toolPolicy saved }
+                            Nothing    -> entry)
+                       liveMap
         return $
           PromptEnv
-            { context = v
+            { context = v { contextToolbox = merged }
             , tools = tools
             , customInstructions = customs
             , backend = (PersistProxy (config @p))
@@ -274,7 +283,7 @@ initializePrompt tools customs sessionName req = do
         initialize @p conn (init'.context)
         return init'
 
-runPrompt :: forall p m a. (MonadIO m, MonadFail m, PersistentBackend p) => [ToolProxy] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> Prompt m a -> m a
+runPrompt :: forall p m a. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => [ToolProxy] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> Prompt m a -> m a
 runPrompt tools customs sessionName req func = do
   context <- initializePrompt @p tools customs sessionName req
   fst <$> runStateT func context
@@ -307,7 +316,7 @@ clear = do
   prev <- getContext
   setContext @p $ prev {contextBody = []}
 
-callWithImage :: forall p m. (MonadIO m, MonadFail m, PersistentBackend p) => Text -> Prompt m Contents
+callWithImage :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => Text -> Prompt m Contents
 callWithImage imagePath = do
   let tryReadFile = T.decodeUtf8Lenient . Base64.encode <$> BS.readFile (T.unpack imagePath)
       imageType =
@@ -332,6 +341,7 @@ generate ::
   forall input output m p.
   ( MonadIO m,
     MonadFail m,
+    MonadTerminal m,
     p ~ StatelessConf,
     A.ToJSON input,
     A.FromJSON input,
@@ -365,6 +375,7 @@ runPromptWithValidation ::
   forall validation p m.
   ( MonadIO m,
     MonadFail m,
+    MonadTerminal m,
     PersistentBackend p,
     Tool validation,
     A.FromJSON validation,

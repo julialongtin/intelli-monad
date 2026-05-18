@@ -31,11 +31,10 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- Types.hs, but cleaner.
 
--- used to break the compile order between toolPolicy, and the remains of Types.hs.
-
 module IntelliMonad.BaseTypes
   (
     ChatCompletion(toRequest, fromResponse),
+    CommandSpec(CommandSpec, cmdSyntax, cmdParser),
     Content(Content, contentUser),
     Contents,
     Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens),
@@ -52,11 +51,12 @@ module IntelliMonad.BaseTypes
     JSONSchema(schema),
     KeyValue(KeyValue, keyValueValue),
     Message(Message, ToolCall, ToolReturn, Image),
+    MonadTerminal(termInput, termOutput),
     migrateAll,
     PersistProxy(PersistProxy),
     PersistentBackend(Conn, config, deleteKey, deleteSession, getKey, initialize, listKeys, listSessions, load, loadByKey, save, saveContents, setKey, setup),
     Prompt,
-    PromptEnv(PromptEnv, backend, context, customInstructions, hooks, inputCallback, outputCallback, timeoutSeconds, tools),
+    PromptEnv(PromptEnv, backend, context, customInstructions, extraCommands, hooks, inputCallback, outputCallback, timeoutSeconds, tools),
     Schema(Maybe', String', Number', Integer', Object', Array', Boolean', Null', Enum', OneOfUntagged, OneOfTagged),
     SessionName,
     Tool(Output, toolExec, toolFooter, toolFunctionName, toolHeader),
@@ -66,7 +66,9 @@ module IntelliMonad.BaseTypes
     userToText
   ) where
 
-import Prelude (Bool(False, True), Double, Either(Left, Right), Eq, Int, Integer, IO, Ord(compare), Semigroup, Show, String, all, error, flip, fmap, head, length, map, not, null, otherwise, return, undefined, (.), ($), (<>), (++), (==))
+import Prelude (Bool(False, True), Double, Either(Left, Right), Eq, Int, Integer, IO, Monad, Ord(compare), Semigroup, Show, String, all, error, flip, fmap, head, length, map, not, null, otherwise, return, undefined, (.), ($), (<>), (++), (==))
+
+import Control.Monad.Trans.Class (lift)
 
 import Control.Monad.Trans.State (StateT)
 
@@ -90,19 +92,26 @@ import Data.Text (Text, intercalate, pack, toLower, unpack)
 
 import Data.Time (Day(ModifiedJulianDay), UTCTime(UTCTime))
 
+import Data.Void (Void)
+
 import Database.Persist (EntityField, PersistField, PersistValue, Unique, Key, toPersistValue, fromPersistValue)
 
 import Database.Persist.Sqlite (PersistFieldSql, sqlType)
 
 import Database.Persist.TH (persistLowerCase,share, mkPersist, sqlSettings, mkMigrate)
 
-import qualified Louter.Types.Request as Louter (ContentPart(TextPart, ToolCallPart, ToolResultPart, ImagePart), ChatRequest(reqMessages), MessageRole(RoleAssistant, RoleTool, RoleUser, RoleSystem), Message(Message, msgRole, msgContent))
+import qualified Louter.Types.Request as Louter (ContentPart(TextPart, ToolCallPart, ToolResultPart, ImagePart), ChatRequest(reqMessages), MessageRole(RoleAssistant, RoleTool, RoleUser, RoleSystem), Message(Message))
 import qualified Louter.Types.Response as Louter (ChatResponse, FinishReason(FinishContentFilter, FinishLength, FinishStop, FinishToolCalls), choiceFinishReason, choiceMessage, choiceToolCalls, functionArguments, functionName, respChoices, rtcFunction, rtcId)
 
 import GHC.Generics (C, Constructor, D, Generic, K1, M1, Rep, S, Selector, U1, (:*:), (:+:), conName, from, selName)
 
+import System.Console.Haskeline (InputT, outputStr, getInputLine)
+
 -- For defining the registry of tools and their policies.
 import IntelliMonad.ToolPolicy.Types (ToolRegistry)
+
+-- For constructing parsers.
+import IntelliMonad.Parser (Parser)
 
 type SessionName = Text
 
@@ -118,14 +127,6 @@ userToText = \case
   System -> "system"
   Assistant -> "assistant"
   Tool -> "tool"
-
-textToUser :: Text -> User
-textToUser = \case
-  "user" -> User
-  "system" -> System
-  "assistant" -> Assistant
-  "tool" -> Tool
-  v -> error $ unpack $ "Undefined role:" <> v
 
 data Message
   = Message
@@ -155,6 +156,14 @@ data FinishReason
   | Null
   deriving (Eq, Show)
 
+textToUser :: Text -> User
+textToUser = \case
+  "user" -> User
+  "system" -> System
+  "assistant" -> Assistant
+  "tool" -> Tool
+  v -> error $ unpack $ "Undefined role:" <> v
+
 finishReasonToText :: FinishReason -> Text
 finishReasonToText = \case
   Stop -> "stop"
@@ -177,7 +186,6 @@ textToFinishReason = \case
 instance ToJSON Message
 
 instance FromJSON Message
-
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
@@ -313,6 +321,16 @@ class ChatCompletion b where
 
 defaultUTCTime :: UTCTime
 defaultUTCTime = UTCTime (ModifiedJulianDay 0) 0
+--------------------------
+-- Repl Command Related --
+--------------------------
+
+-- Commands in the Repl.
+data CommandSpec = CommandSpec
+  {
+    cmdSyntax :: Text
+  , cmdParser :: Parser (Prompt (InputT IO) ())
+  }
 
 --------------------
 -- Prompt Related --
@@ -331,6 +349,8 @@ data PromptEnv = PromptEnv
   -- ^ The backend for prompt logging
   , hooks :: [HookProxy]
   -- ^ The hook functions before or after calling LLM
+  , extraCommands :: [CommandSpec]
+  -- ^ Commands added to the REPL by a caller.
   , timeoutSeconds :: Maybe Int
   -- ^ The timeout in seconds to wait for results. Given to Louter.
   , inputCallback :: Text -> IO (Maybe Text)
@@ -583,3 +603,20 @@ class PersistentBackend p where
   getKey :: (MonadIO m, MonadFail m) => Conn p -> Unique KeyValue -> m (Maybe Text)
   setKey :: (MonadIO m, MonadFail m) => Conn p -> Unique KeyValue -> Text -> m ()
   deleteKey :: (MonadIO m, MonadFail m) => Conn p -> Unique KeyValue -> m ()
+
+----------------------
+-- Terminal Related --
+----------------------
+
+class Monad m => MonadTerminal m where
+  termOutput :: Text -> m ()
+  termInput  :: Text -> m (Maybe Text)
+
+instance MonadTerminal (InputT IO) where
+  termOutput = outputStr . unpack
+  termInput  = fmap (fmap pack) . getInputLine . unpack
+
+instance MonadTerminal m => MonadTerminal (StateT s m) where
+  termOutput = lift . termOutput
+  termInput  = lift . termInput
+

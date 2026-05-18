@@ -11,14 +11,14 @@ import qualified Data.Aeson as A
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text.Encoding as TE
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import GHC.Generics
-import IntelliMonad.Types
 import Test.Hspec
 import qualified Data.ByteString.Lazy as BL
 import qualified ArxivSpec
+
+import IntelliMonad.Consume (HasFunctionObject(..), JSONSchema(schema), toAeson)
 
 -- Test types for enum (all nullary constructors)
 data Color = Red | Green | Blue

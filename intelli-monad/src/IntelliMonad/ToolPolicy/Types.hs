@@ -11,18 +11,18 @@
 
 module IntelliMonad.ToolPolicy.Types
   (
-    ToolEntry(ToolEntry),
+    ToolEntry(ToolEntry, toolPolicy),
     ToolPolicy(Allow, Ask, Deny),
-    ToolRegistry(ToolRegistry),
+    ToolRegistry(ToolRegistry, rawRegistry),
   ) where
 
-import Prelude (Either(Left, Right), Eq, Show, (.), ($), (<>), fmap, return)
+import Prelude (Either(Left, Right), Eq, Show, (.), ($), (<>), (<$>), fmap, return)
 
 import Database.Persist (PersistValue, PersistField, toPersistValue, fromPersistValue)
 
 import Database.Persist.Sqlite (PersistFieldSql(sqlType))
 
-import Data.Aeson (FromJSON, ToJSON, encode, eitherDecode)
+import Data.Aeson (FromJSON(parseJSON), ToJSON(toJSON), encode, eitherDecode)
 
 import Data.ByteString (ByteString, fromStrict, toStrict)
 
@@ -32,11 +32,11 @@ import Data.Proxy (Proxy(Proxy))
 
 import Data.Text (Text, pack)
 
-import GHC.Generics(Generic)
+import GHC.Generics (Generic)
 
 -- A container of tools, and their execution policies.
-newtype ToolRegistry = ToolRegistry { _rawRegistry :: Map Text ToolEntry }
-  deriving (Eq, Show, ToJSON, FromJSON, Generic)
+newtype ToolRegistry = ToolRegistry { rawRegistry :: Map Text ToolEntry }
+  deriving (Eq, Show, Generic)
 
 data ToolPolicy
   = Allow     -- ^ Execute the tool call for the model immediately, returning the result.
@@ -50,8 +50,18 @@ data ToolPolicy
 -- An item in our ToolRegistry. Note the Registry keeps the name as a key.
 data ToolEntry = ToolEntry
   { _toolDescription :: Text
-  , _toolPolicy :: ToolPolicy
+  , toolPolicy :: ToolPolicy
   } deriving (Eq, Show, ToJSON, FromJSON, Generic)
+
+-- Manual toJSON instance. Needed to prevent serialization / deserialization of whole tools.
+instance ToJSON ToolRegistry where
+  toJSON (ToolRegistry m) = toJSON $ toolPolicy <$> m
+
+-- Manual fromJSON instance. Needed to prevent serialization / deserialization of whole tools.
+instance FromJSON ToolRegistry where
+  parseJSON v = do
+    policies <- parseJSON v
+    return $ ToolRegistry $ (ToolEntry "") <$> policies
 
 -- Generic serializer, to stuff stuff in the database.
 toPV :: (ToJSON a) => a -> PersistValue
@@ -73,6 +83,4 @@ instance PersistField ToolRegistry where
 -- Type information, for the SQL interface. the same on all of our json-in-sqls.
 instance PersistFieldSql ToolRegistry where
   sqlType _ = sqlType (Proxy @ByteString)
-
-
 

@@ -9,14 +9,13 @@
 
 module Main where
 
-import Control.Monad.Trans.State (runStateT)
-import Data.Proxy
-import IntelliMonad.Persist
-import IntelliMonad.Prompt
-import IntelliMonad.Types
-import IntelliMonad.Config
+import Prelude (IO, (<>), (==), (<$>), map, print)
 
-import IntelliMonad.BaseTypes (CustomInstruction(customHeader, customFooter), CustomInstructionProxy(CustomInstructionProxy), Content(Content, contentUser), CustomInstruction, Message(Message), User(Assistant, System, User), defaultUTCTime)
+import Control.Monad.Trans.State (runStateT)
+import Data.Maybe (Maybe(Just))
+import Data.Text.IO (getLine, putStr)
+
+import IntelliMonad.Consume (CustomInstruction(customHeader, customFooter), CustomInstructionProxy(CustomInstructionProxy), Content(Content, contentUser), CustomInstruction, Message(Message), MonadTerminal(termInput, termOutput), StatelessConf, User(Assistant, System, User), callWithContents, defaultUTCTime, fromModel, initializePrompt, model, readConfig, showContents)
 
 data Haruhi = Haruhi
 
@@ -35,6 +34,10 @@ data Env = Env
 instance CustomInstruction Env where
   customHeader _ = [(Content System (Message "あなたは涼宮ハルヒの世界の環境として状況を設定してください。話す時は'env: 'をつけて話してください。") "" defaultUTCTime)]
   customFooter _ = []
+
+instance MonadTerminal IO where
+  termOutput  = putStr
+  termInput _ = Just <$> getLine
 
 toUser :: Content -> Content
 toUser c =

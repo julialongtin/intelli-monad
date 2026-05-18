@@ -10,16 +10,14 @@
 
 module Main where
 
-import Data.Aeson
+import Prelude (Double, Eq, Int, IO, Show, String, ($), (<$>), print, return)
+import Data.Aeson (FromJSON, ToJSON)
+import Data.Maybe (Maybe(Just))
 import Data.Text (Text)
-import Data.Proxy
-import GHC.Generics
-import IntelliMonad.Persist
-import IntelliMonad.Prompt
-import IntelliMonad.Types
-import IntelliMonad.Config
+import Data.Text.IO (getLine, putStr)
+import GHC.Generics (Generic)
 
-import IntelliMonad.BaseTypes (Content(Content), HasFunctionObject(getFieldDescription, getFunctionDescription, getFunctionName), Tool(Output, toolExec, toolHeader), JSONSchema, Message(Message), User(System), defaultUTCTime)
+import IntelliMonad.Consume (Content(Content), HasFunctionObject(getFieldDescription, getFunctionDescription, getFunctionName), MonadTerminal(termInput, termOutput), StatelessConf, Tool(Output, toolExec, toolHeader), JSONSchema, Message(Message), User(System), defaultUTCTime, fromModel, generate, model, readConfig, runPromptWithValidation, user)
 
 data ValidateNumber = ValidateNumber
   { number :: Double
@@ -70,6 +68,10 @@ instance HasFunctionObject Input where
   getFunctionName = "formula"
   getFunctionDescription = "Describe a formula"
   getFieldDescription "formula" = "A formula"
+
+instance MonadTerminal IO where
+  termOutput  = putStr
+  termInput _ = Just <$> getLine
 
 main :: IO ()
 main = do
