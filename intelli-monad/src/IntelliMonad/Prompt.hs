@@ -75,7 +75,7 @@ import qualified Louter.Types.Request as Louter (ChatRequest)
 
 import qualified System.IO as IO (hFlush, stdout)
 
-import IntelliMonad.BaseTypes (Content(Content), Contents, Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens), CustomInstructionProxy, FinishReason(FunctionCall, Length, Stop, ToolCalls), defaultUTCTime, HasFunctionObject, Hook(preHook, postHook), HookProxy(HookProxy), JSONSchema(schema), Message(Message, ToolCall, ToolReturn, Image), MonadTerminal, PersistProxy(PersistProxy), PersistentBackend(Conn, config, initialize, load, save, saveContents), Prompt, PromptEnv(PromptEnv, backend, context, customInstructions, hooks, inputCallback, outputCallback, timeoutSeconds, tools), Tool(Output, toolFunctionName), ToolProxy(ToolProxy), User(User), userToText)
+import IntelliMonad.BaseTypes (Content(Content), Contents, Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens), CustomInstructionProxy, FinishReason(FunctionCall, Length, Stop, ToolCalls), defaultUTCTime, HasFunctionObject, Hook(preHook, postHook), HookProxy(HookProxy), JSONSchema(schema), Message(Message, ToolCall, ToolReturn, Image), MonadTerminal, PersistProxy(PersistProxy), PersistentBackend(Conn, config, initialize, load, save, saveContents), Prompt, PromptEnv(PromptEnv, backend, context, customInstructions, extraCommands, hooks, inputCallback, outputCallback, timeoutSeconds, tools), Tool(Output, toolFunctionName), ToolProxy(ToolProxy), User(User), userToText)
 
 import IntelliMonad.Config (readConfig)
 import qualified IntelliMonad.Config as Config (getUseStreaming)
@@ -255,6 +255,7 @@ initializePrompt tools customs sessionName req = do
             , timeoutSeconds = Nothing
             , inputCallback = \prompt -> T.putStr prompt >> IO.hFlush IO.stdout >> fmap Just T.getLine
             , outputCallback = \text -> T.putStr text >> IO.hFlush IO.stdout
+            , extraCommands = []
             }
       Nothing -> do
         time <- liftIO getCurrentTime
@@ -279,6 +280,7 @@ initializePrompt tools customs sessionName req = do
                 , timeoutSeconds = Nothing
                 , inputCallback = \prompt -> T.putStr prompt >> IO.hFlush IO.stdout >> fmap Just T.getLine
                 , outputCallback = \text -> T.putStr text >> IO.hFlush IO.stdout
+                , extraCommands = []
                 }
         initialize @p conn (init'.context)
         return init'
