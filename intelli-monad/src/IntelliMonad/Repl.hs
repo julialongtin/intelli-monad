@@ -16,8 +16,10 @@
 
 module IntelliMonad.Repl
   (
-    callInput,
-    runRepl
+    callInput
+  , lexm
+  , parseSessionName
+  , runRepl
   )
 where
 
@@ -81,6 +83,12 @@ import IntelliMonad.ToolPolicy (getTools, changeToolPolicy)
 
 import IntelliMonad.ToolPolicy.Types (ToolEntry(ToolEntry), ToolPolicy(Allow,Ask,Deny))
 
+-- Parser helpers
+lexm :: Parser a -> Parser a
+lexm = lexeme (L.space space1 empty empty)
+
+parseSessionName = many (alphaNumChar <|> char '-')
+
 defaultCommands :: forall p. PersistentBackend p => [CommandSpec]
 defaultCommands =
   [
@@ -110,10 +118,6 @@ defaultCommands =
   , CommandSpec ":edit" (try (lexm (string ":edit")) >> pure handleEdit)
   ]
   where
-    -- Parser helpers
-    lexm :: Parser a -> Parser a
-    lexm = lexeme (L.space space1 empty empty)
-    parseSessionName = many alphaNumChar
     parseImagePath = many (alphaNumChar <|> char '.' <|> char '/' <|> char '-')
     parseModelName = many (alphaNumChar <|> char '-' <|> char '.' <|> char ':' <|> char '/')
     parseToolName = many (alphaNumChar <|> char '-' <|> char '.' <|> char ':' <|> char '/' <|> char '_')
@@ -368,6 +372,7 @@ runRepl tools extensions customs sessionName defaultReq contents = do
         prev <- get
         put $ prev { outputCallback = callbackOut
                    , inputCallback = callbackIn
+                   , extraCommands = extensions
                    }
         push @p contents
         runRepl' @p extensions
