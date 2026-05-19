@@ -23,26 +23,75 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module IntelliMonad.Persist where
+module IntelliMonad.Persist (
+  StatelessConf
+  , getDataDir
+  , withBackend
+  , withDB
+  ) where
+
+import Prelude (Bool(True), IO, FilePath, ($), (==), (<$>), (>>=), compare, concat, length, map, return)
+
+import Control.Monad.Fail (MonadFail, fail)
 
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import Data.List (maximumBy)
-import qualified Data.Set as DS (toList, fromList)
-import Database.Persist hiding (get)
-import Database.Persist.Sqlite hiding (get)
-import IntelliMonad.BaseTypes (Context(contextCreated, contextSessionName), EntityField (ContextSessionName, ContextId), KeyValue(KeyValue, keyValueValue), PersistProxy(PersistProxy), PersistentBackend(Conn, config, deleteKey, deleteSession, getKey, initialize, listKeys, listSessions, load, loadByKey, save, saveContents, setKey, setup), PromptEnv(PromptEnv, backend), Prompt, Unique(KeyName), migrateAll)
+
 import Control.Monad.Trans.State (get)
+
+import Data.List (maximumBy)
+
+import Data.Maybe (Maybe(Just, Nothing))
+
+import Data.Text (pack)
+
+import qualified Data.Set as DS (toList, fromList)
+
+import Database.Persist hiding (get)
+
+import Database.Persist.Sqlite hiding (get)
+
+import System.IO.Unsafe (unsafePerformIO)
+
+import System.Environment (lookupEnv)
+
+import System.Directory (createDirectoryIfMissing, getHomeDirectory)
+
+import System.FilePath ((</>))
+
+import IntelliMonad.BaseTypes (Context(contextCreated, contextSessionName), EntityField (ContextSessionName, ContextId), KeyValue(KeyValue, keyValueValue), PersistProxy(PersistProxy), PersistentBackend(Conn, config, deleteKey, deleteSession, getKey, initialize, listKeys, listSessions, load, loadByKey, save, saveContents, setKey, setup), PromptEnv(backend), Prompt, Unique(KeyName), migrateAll)
 
 data StatelessConf = StatelessConf
 
--- FIXME: hard coded path, magic number.
+-- Find the directory to store data in.
+getDataDir :: IO FilePath
+getDataDir = do
+  baseDir <- lookupEnv "XDG_DATA_HOME" >>= \case
+    Just dirName -> return dirName
+    Nothing -> do
+      homeDir <- getHomeDirectory
+      return $ homeDir </> ".local" </> "share"
+  -- FIXME: hard coded name.
+  let targetDir = baseDir </> "intelli-monad"
+  createDirectoryIfMissing True targetDir
+  return targetDir
+
+getDbPath :: IO FilePath
+getDbPath = do
+  dataDir <- lookupEnv "INTELLI_MONAD_DATA_DIR" >>= \case
+    Just envDir -> return envDir
+    Nothing -> getDataDir
+-- FIXME: hard coded filename.
+  return $ dataDir </> "intelli-monad.sqlite3"
+
+sqliteConfig :: SqliteConf
+sqliteConfig = unsafePerformIO $ do
+  path <- getDbPath
+  return $ SqliteConf {sqlDatabase = (pack path), sqlPoolSize = 5 }
+
+-- FIXME: magic number.
 instance PersistentBackend SqliteConf where
   type Conn SqliteConf = ConnectionPool
-  config =
-    SqliteConf
-      { sqlDatabase = "intelli-monad.sqlite3",
-        sqlPoolSize = 5
-      }
+  config = sqliteConfig
   setup p = do
     conn <- liftIO $ createPoolConfig p
     liftIO $ runPool p (runMigration migrateAll) conn

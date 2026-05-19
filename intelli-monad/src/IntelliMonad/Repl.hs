@@ -56,6 +56,8 @@ import System.Console.Haskeline (InputT, Settings(Settings, autoAddHistory, comp
 
 import System.Environment (lookupEnv)
 
+import System.FilePath ((</>))
+
 import System.IO (hClose)
 
 import System.IO.Temp (withSystemTempFile)
@@ -72,7 +74,7 @@ import IntelliMonad.BaseTypes (ChatCompletion(toRequest), CommandSpec(CommandSpe
 
 import IntelliMonad.Parser (Parser)
 
-import IntelliMonad.Persist (withDB)
+import IntelliMonad.Persist (getDataDir, withDB)
 
 import IntelliMonad.Prompt (callWithImage, callWithText, clear, getContext, push, runPrompt, setContext, showContents)
 
@@ -356,10 +358,14 @@ runRepl' extraSpecs = do
 
 runRepl :: forall p. (PersistentBackend p) => [ToolProxy] -> [CommandSpec] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> Contents -> IO ()
 runRepl tools extensions customs sessionName defaultReq contents = do
+  historyPath <- getDataDir >>= \dir ->
+    lookupEnv "INTELLI_MONAD_DATA_DIR" >>= \case
+      Just d  -> return $ d </> "history"
+      Nothing -> return $ dir </> "history"
   runInputT
     ( Settings
         { complete = completeFilename,
-          historyFile = Just "intelli-monad.history",
+          historyFile = Just historyPath,
           autoAddHistory = True
         }
     ) $

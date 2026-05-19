@@ -66,6 +66,8 @@ library
                     , JuicyPixels >= 3.3.8 && < 3.4
                     , bytestring >= 0.11.5 && < 1.0
                     , containers >= 0.6.7 && < 0.7
+                    , directory
+                    , filepath
                     , transformers >= 0.6.1 && < 0.7
                     , vector >= 0.13.1 && < 0.14
                     , aeson >= 2.1 && < 2.3
