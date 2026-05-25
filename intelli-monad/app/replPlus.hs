@@ -18,33 +18,25 @@
 
 module Main where
 
-import Prelude (Bool(False, True), Eq, FilePath, IO, Show(show), ($), (>>), (<>), (>>=), (/=), null, return)
+import Prelude (Bool(False, True), FilePath, IO, ($), (>>), (<>), (>>=), (/=), return)
 
 import Control.Monad.IO.Class (liftIO)
-
-import Control.Exception (catch, SomeException)
-
-import Data.List (isPrefixOf)
 
 import Data.Maybe (Maybe(Just, Nothing))
 
 import Data.Proxy (Proxy(..))
-import Data.Text (Text, pack)
-import GHC.Generics (Generic)
+import Data.Text (pack)
 
 import System.Console.Haskeline (InputT)
 
-import System.Directory (canonicalizePath, doesDirectoryExist, getCurrentDirectory, setCurrentDirectory)
+import System.Directory (doesDirectoryExist, setCurrentDirectory)
 
 import System.Environment (lookupEnv)
 
 import System.FilePath ((</>))
 
-import qualified Data.Aeson as A
 
 import qualified Data.Text  as T
-
-import Data.Text.IO (readFile)
 
 import Database.Persist.Sqlite       (SqliteConf)
 import Options.Applicative hiding (many)
@@ -54,29 +46,17 @@ import Text.Megaparsec.Char
 
 import IntelliMonad.Consume
   ( CommandSpec(..)
-  , Example(Example)
-  , HasFunctionObject(..)
-  , JSONSchema(..)
   , MonadTerminal(..)
   , Prompt
-  , Schema(String')
-  , Tool(..)
   , ToolProxy(..)
   , defaultCommands
   , defaultTools
-  , getExamples
   , readConfig
   , lexm
   , model
   , parseSessionName
   , runRepl
   , fromModel
-  , warnUnknownKeys
-  )
-
-import IntelliMonad.Schema
-  (
-    mkSchemaFromHasFunctionObject
   )
 
 import Tools.Hello
@@ -89,68 +69,10 @@ import Tools.ListGitFiles
     ListGitFiles
   )
 
--- ── Git read file tool ─────────────────────────────────────────────────────────
-data ReadGitFile = ReadGitFile
-  { gitFilePath :: Text
-  , readWarnings :: Maybe [Text]
-  }
-  deriving (Eq, Show, Generic)
-
--- JSON ↔ Haskell mapping that translates the public key "path" to the private field 'gitFilePath'
-instance A.FromJSON ReadGitFile where
-  parseJSON = A.withObject "ReadGitFile" $ \rawObj -> do
-    let (obj, foundWarnings) = warnUnknownKeys ["path"] rawObj            -- <-- whitelist
+import Tools.ReadGitFile
+  (
     ReadGitFile
-      <$> obj A..: "path"      -- public name → internal field
-      <*> pure (if null foundWarnings then Nothing else Just foundWarnings)
-
-instance A.ToJSON ReadGitFile where
-  toJSON v@(ReadGitFile {}) = A.object
-    [ "path"    A..= (gitFilePath v)
-    ]
-
-instance HasFunctionObject ReadGitFile where
-  getFunctionName            = "read_git_file"
-  getFunctionDescription     = "Read the on-disk contents of a file in the user's git repository."
-  getFieldDescription "path" = "File to be read, relative to the repository root. For example: \"/Makefile\""
-  getFieldDescription _      = "⚠ Unknown field – check the schema."
-  getExamples = Just $ [ Example "Read the README.md in the root directory of the git repository." $ A.object
-                         [ "path"    A..= ("README.md" :: Text)
-                         ]
-                       ]
-
--- primitive type for the only field.
-instance JSONSchema ReadGitFile where
-  schema = mkSchemaFromHasFunctionObject (Proxy @ReadGitFile)
-                                         [ ("path", String') ]
-
-instance Tool ReadGitFile where
-  data Output ReadGitFile = ReadGitFileOutput
-    { contents       :: Text
-    , targetFilePath :: Text
-    , warnings       :: Maybe [Text]
-    } deriving (Eq, Show, Generic, A.FromJSON, A.ToJSON)
-
-  toolExec args = liftIO $ do
-    dir      <- getCurrentDirectory
-    let requested = dir </> T.unpack args.gitFilePath
-    canon    <- canonicalizePath requested
-    canonDir <- canonicalizePath dir
-    if canonDir `isPrefixOf` canon
-      then
-        catch
-          (ReadGitFileOutput <$> readFile canon <*> pure args.gitFilePath <*> pure args.readWarnings)
-          (\(e :: SomeException) -> return ReadGitFileOutput
-                   { contents = "Error reading file: " <> T.pack (show e)
-                   , targetFilePath = args.gitFilePath
-                   , warnings = args.readWarnings
-                   })
-      else
-        return ReadGitFileOutput
-          { contents = "Access denied: Path escapes repository"
-          , targetFilePath = args.gitFilePath
-          , warnings = args.readWarnings
-          }
+  )
 
 -- ── Extra REPL command ────────────────────────────────────────────────────────
 greetCommand :: CommandSpec
@@ -164,7 +86,7 @@ greetCommand = CommandSpec
 cwdCommand :: CommandSpec
 cwdCommand = CommandSpec ":cwd <path>"
              (try (lexm (string ":cwd") >> T.pack <$> lexm (many (satisfy (/= '\n'))))
-              >>= \p -> pure (handleCwd (T.unpack p)))
+              >>= \p -> pure (handleCwd $ T.unpack p))
 
 handleCwd :: FilePath -> Prompt (InputT IO) ()
 handleCwd path = liftIO (doesDirectoryExist (path </> ".git")) >>= \case
