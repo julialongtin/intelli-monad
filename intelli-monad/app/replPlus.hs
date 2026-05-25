@@ -74,6 +74,11 @@ import Tools.ReadGitFile
     ReadGitFile
   )
 
+import Tools.Man
+  (
+    Man
+  )
+
 -- ── Extra REPL command ────────────────────────────────────────────────────────
 greetCommand :: CommandSpec
 greetCommand = CommandSpec
@@ -110,6 +115,7 @@ main = do
           (ToolProxy (Proxy @Hello) :
            ToolProxy (Proxy @ReadGitFile) :
            ToolProxy (Proxy @ListGitFiles) :
+           ToolProxy (Proxy @Man) :
            defaultTools )
           (greetCommand :
            cwdCommand :

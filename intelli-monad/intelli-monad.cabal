@@ -124,6 +124,7 @@ executable intelli-monad-plus
     main-is:          replPlus.hs
     other-modules:    Tools.Hello
                     , Tools.ListGitFiles
+                    , Tools.Man
                     , Tools.ReadGitFile
     ghc-options:      -rtsopts -threaded -g
     build-depends:
