@@ -123,6 +123,7 @@ executable intelli-monad-plus
     import:           warnings
     main-is:          replPlus.hs
     other-modules:    Tools.Hello
+                    , Tools.ListGitFiles
     ghc-options:      -rtsopts -threaded -g
     build-depends:
         aeson,

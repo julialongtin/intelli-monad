@@ -18,9 +18,7 @@
 
 module Main where
 
-import Prelude (Bool(False, True), Eq, FilePath, Int, IO, Show(show), String, (.), (+), (<), ($), (>>), (<>), (>>=), (/=), drop, filter, length, max, not, null, return, take)
-
-import Control.Monad (forM_)
+import Prelude (Bool(False, True), Eq, FilePath, IO, Show(show), ($), (>>), (<>), (>>=), (/=), null, return)
 
 import Control.Monad.IO.Class (liftIO)
 
@@ -28,10 +26,10 @@ import Control.Exception (catch, SomeException)
 
 import Data.List (isPrefixOf)
 
-import Data.Maybe (Maybe(Just, Nothing), fromMaybe)
+import Data.Maybe (Maybe(Just, Nothing))
 
 import Data.Proxy (Proxy(..))
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text, pack)
 import GHC.Generics (Generic)
 
 import System.Console.Haskeline (InputT)
@@ -40,15 +38,12 @@ import System.Directory (canonicalizePath, doesDirectoryExist, getCurrentDirecto
 
 import System.Environment (lookupEnv)
 
-import System.Exit (ExitCode(ExitSuccess, ExitFailure))
-
 import System.FilePath ((</>))
-
-import System.Process (readProcessWithExitCode)
 
 import qualified Data.Aeson as A
 
 import qualified Data.Text  as T
+
 import Data.Text.IO (readFile)
 
 import Database.Persist.Sqlite       (SqliteConf)
@@ -64,7 +59,7 @@ import IntelliMonad.Consume
   , JSONSchema(..)
   , MonadTerminal(..)
   , Prompt
-  , Schema(Boolean', Integer', Maybe', String')
+  , Schema(String')
   , Tool(..)
   , ToolProxy(..)
   , defaultCommands
@@ -89,152 +84,10 @@ import Tools.Hello
     Hello
   )
 
--- ── Git ls file tool ─────────────────────────────────────────────────────────
-
-data ListGitFiles = ListGitFiles
-  { gitSubDirPath :: Maybe Text
-  , recurse :: Maybe Bool
-  , limit :: Maybe Int
-  , offset :: Maybe Int
-  , listWarnings :: Maybe [Text]
-  }
-  deriving (Eq, Show, Generic)
-
--- JSON ↔ Haskell mapping that translates the public key "path" to the private field 'gitSubDirPath'
-instance A.FromJSON ListGitFiles where
-  parseJSON = A.withObject "ListGitFiles" $ \rawObj -> do
-    -- First check for stray keys:
-    let (obj, foundWarnings) = warnUnknownKeys ["path", "recurse", "limit", "offset"] rawObj -- <-- whitelist
-    ListGitFiles -- public names here
-      <$> obj A..:? "path"
-      <*> obj A..:? "recurse"
-      <*> obj A..:? "limit"
-      <*> obj A..:? "offset"
-      <*> pure (if null foundWarnings then Nothing else Just foundWarnings)
-
-instance A.ToJSON ListGitFiles where
-  toJSON v@(ListGitFiles {}) = A.object -- public names -> accessor
-    [ "path"    A..= (gitSubDirPath v)
-    , "recurse" A..= (recurse v)
-    , "limit"   A..= (limit v)
-    , "offset"  A..= (offset v)
-    ]
-
-instance HasFunctionObject ListGitFiles where
-  getFunctionName        = "list_git_files"
-  getFunctionDescription = "List files in the user's git repository (working tree, not HEAD)"
-  getFieldDescription "path" = "Optional path relative to the git repository root to list files within. If omitted, lists files from the repository root. Only lists paths within the user's git repository. For example: \"programs/\""
-  getFieldDescription "recurse" = "Optional flag indicating whether to recursively list files under the given path, or only list files contained within the directory given in path. If False(the default), only lists immediate children."
-  getFieldDescription "limit" = "Optional maximum number of file listings to return. If omitted, returns all matching file listings. Use this to avoid overwhelmingly large responses."
-  getFieldDescription "offset" = "Zero‑based index of the first file to return. If ommitted, starts with the first file listing. Used together with `limit` for paging."
-  getFieldDescription _ = "⚠ Unknown field – check the schema."
-{-  getExample = Just $ A.object
-    []
-  getExample = Just $ A.object
-    [ 
--}
-  getExamples = Just $ [
-    Example "Get a listing of all of the files in the root directory of the git repository. Does not recurse." $ A.object []
-    , Example " Get a listing of the files immediately in the 'docs' directory. Does not recurse."
-             $ A.object
-                [ "path"    A..= ("docs/" :: Text)
-                , "recurse" A..= False
-                ]
-    , Example "Get a listing of ten of the files under src/, recursively starting with the 21st file, and ending with the 30th."
-             $ A.object
-                [ "path"    A..= ("src/" :: Text)
-                , "recurse" A..= True
-                , "limit"   A..= (10 :: Int)
-                , "offset"  A..= (20 :: Int)
-                ]
-    ]
--- And now we define the Types and names, as the models see them.
-instance JSONSchema ListGitFiles where
-  schema = mkSchemaFromHasFunctionObject (Proxy @ListGitFiles)
-            [
-              ("path", Maybe' String')
-            , ("recurse", Maybe' Boolean')
-            , ("limit", Maybe' Integer')
-            , ("offset", Maybe' Integer')
-            ]
-
-instance Tool ListGitFiles where
-  data Output ListGitFiles = ListGitFilesOutput
-    { files         :: [Text]
-    , repoRoot      :: Text
-    , listedPath    :: Text
-    , totalMatched  :: Int
-    , resultLimited :: Bool
-    , nextOffset    :: Maybe Int
-    , listWarned    :: Maybe [Text]
-    } deriving (Eq, Show, Generic, A.FromJSON, A.ToJSON)
-  toolExec args = do
-    forM_ (fromMaybe [] args.listWarnings) $ \w ->
-      termOutput $ pack $ "[WARN] list_git_files – unknown key: " <> unpack w <> "\n"
-    liftIO $ do
-      cwd <- getCurrentDirectory
-      let
-        requestedPath :: Text
-        requestedPath = fromMaybe "" args.gitSubDirPath
-        gitCmd1, gitCmd2 :: [String]
-        gitCmd1 = ["rev-parse", "--show-toplevel"]
-        gitCmd2 = ("ls-files": "-z" : if T.null requestedPath then [] else ["--", T.unpack requestedPath])
-      res1 <- readProcessWithExitCode "git" ("-C" : cwd : gitCmd1) ""
-      case res1 of
-        (ExitFailure _, _, _) -> pure $ emptyOutput (T.pack cwd) requestedPath
-        (ExitSuccess, gitRootRaw, _) -> do
-          let
-            gitRoot = T.unpack . T.strip . T.pack $ gitRootRaw
-          -- zero separated list.
-          res2 <- readProcessWithExitCode "git" ("-C" : gitRoot : gitCmd2) ""
-          let
-            filesAll = case res2 of
-                         -- FIXME: should we do more with failure here?
-                         (ExitFailure _, _, _) -> []
-                         (ExitSuccess, zeroFilesRaw, _) -> filter (not . T.null) $ T.splitOn "\0" $ T.pack zeroFilesRaw
-            filesRecursed = case fromMaybe False args.recurse of
-                              -- Return recursive ls.
-                              True -> filesAll
-                              -- Strip out everything but files immediately in the directory in question.
-                              False -> filterDirectChildren requestedPath filesAll
-            total = length filesRecursed
-            requestedOffset = max 0 $ fromMaybe 0 args.offset
-            filesDropped = drop requestedOffset filesRecursed
-            (filesLimited, limited) = case args.limit of
-                                        Nothing -> (filesDropped, False) -- No limits.
-                                        Just n -> (take (max 0 n) $ drop requestedOffset filesRecursed, requestedOffset + n < total)
-            in
-            pure $ ListGitFilesOutput { files = filesLimited
-                                      , repoRoot = T.pack gitRoot
-                                      , listedPath = requestedPath
-                                      , totalMatched = total
-                                      , resultLimited = limited
-                                      , nextOffset = if limited then Just (requestedOffset + length filesLimited) else Nothing
-                                      , listWarned = args.listWarnings
-                                      }
-
--- Generate an empty output result.
-emptyOutput :: Text -> Text -> Output ListGitFiles
-emptyOutput rootPath requestedPath =
-  ListGitFilesOutput
-  { files = []
-  , repoRoot = rootPath
-  , listedPath = requestedPath
-  , totalMatched = 0
-  , resultLimited = False
-  , nextOffset = Nothing
-  , listWarned = Nothing
-  }
-
--- Remove results that would be normally in a recursive result, aka, de-recursivize it.
-filterDirectChildren :: Text -> [Text] -> [Text]
-filterDirectChildren requestedPath =
-  filter $ \fileName ->
-             let
-               prefix = if T.null requestedPath then "" else requestedPath <> "/"
-               rest = T.drop (T.length prefix) fileName
-             in
-               not $ "/" `T.isInfixOf` rest
+import Tools.ListGitFiles
+  (
+    ListGitFiles
+  )
 
 -- ── Git read file tool ─────────────────────────────────────────────────────────
 data ReadGitFile = ReadGitFile
