@@ -17,13 +17,14 @@
 module IntelliMonad.Repl
   (
     callInput
+  , defaultCommands
   , lexm
   , parseSessionName
   , runRepl
   )
 where
 
-import Prelude (Bool(True), Either(Left, Right), IO, (.), ($), (<>), (>>), (++), (<$>), (>>=), fmap, print, pure, putStrLn, return, show)
+import Prelude (Bool(True), Either(Left, Right), IO, (.), ($), (<>), (>>), (<$>), (>>=), fmap, print, pure, putStrLn, return, show)
 
 import Control.Monad (forM_, mapM_)
 
@@ -70,7 +71,7 @@ import Text.Megaparsec.Char (alphaNumChar, char, space1, string)
 
 import Text.Megaparsec.Char.Lexer as L (decimal, lexeme, space)
 
-import IntelliMonad.BaseTypes (ChatCompletion(toRequest), CommandSpec(CommandSpec, cmdSyntax, cmdParser), Content(Content), Contents, Context(contextBody, contextFooter, contextHeader, contextRequest, contextSessionName, contextTotalTokens, contextToolbox), CustomInstructionProxy, Message(Message), MonadTerminal(termOutput), ToolProxy, PersistentBackend(deleteSession, listSessions, load, save), Prompt, PromptEnv(context, extraCommands, inputCallback, outputCallback, timeoutSeconds))
+import IntelliMonad.BaseTypes (ChatCompletion(toRequest), CommandSpec(CommandSpec, cmdSyntax, cmdParser), Content(Content), Contents, Context(contextBody, contextFooter, contextHeader, contextRequest, contextSessionName, contextTotalTokens, contextToolbox), CustomInstructionProxy, Message(Message), MonadTerminal(termOutput), ToolProxy, PersistentBackend(deleteSession, listSessions, load, save), Prompt, PromptEnv(context, commands, inputCallback, outputCallback, timeoutSeconds))
 
 import IntelliMonad.Parser (Parser)
 
@@ -91,6 +92,7 @@ lexm = lexeme (L.space space1 empty empty)
 
 parseSessionName = many (alphaNumChar <|> char '-')
 
+-- The commands built into our Repl engine.
 defaultCommands :: forall p. PersistentBackend p => [CommandSpec]
 defaultCommands =
   [
@@ -270,7 +272,7 @@ defaultCommands =
     handleHelp :: forall p2. PersistentBackend p2 => Prompt (InputT IO) ()
     handleHelp = do
       env <- get
-      liftIO $ mapM_ (T.putStrLn . cmdSyntax) (env.extraCommands ++ defaultCommands @p2)
+      liftIO $ mapM_ (T.putStrLn . cmdSyntax) env.commands
 
 -- Feed a given string of text to the LLM, and get back a result.
 callInput :: forall p. PersistentBackend p => Text -> Prompt (InputT IO) ()
@@ -339,25 +341,24 @@ editContentsWithEditor contents = do
             return Nothing
       ExitFailure _ -> return Nothing
 
--- Now accepts an argument, for more commands.
+-- Run the repl.
 runRepl' :: forall p. (PersistentBackend p) => [CommandSpec] -> Prompt (InputT IO) ()
-runRepl' extraSpecs = do
-  let allSpecs = extraSpecs ++ defaultCommands @p
+runRepl' commands = do
   inLine <- lift $ getInputLine "% "
   case inLine of
     Nothing -> return ()
     Just input -> do
       if T.isPrefixOf ":" (T.pack input)
         then
-        let result = parse (choice $ cmdParser <$> allSpecs) "stdin" (T.pack input)
+        let result = parse (choice $ cmdParser <$> commands) "stdin" (T.pack input)
         in case result of
-             Right action -> action >> runRepl' @p extraSpecs
-             Left err -> termOutput ("Unknown command: " <> T.pack (errorBundlePretty err) <> "\n") >> runRepl' @p extraSpecs
+             Right action -> action >> runRepl' @p commands
+             Left err -> termOutput ("Unknown command: " <> T.pack (errorBundlePretty err) <> "\n") >> runRepl' @p commands
         else 
-          callInput @p (T.pack input) >> runRepl' @p extraSpecs
+          callInput @p (T.pack input) >> runRepl' @p commands
 
 runRepl :: forall p. (PersistentBackend p) => [ToolProxy] -> [CommandSpec] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> Contents -> IO ()
-runRepl tools extensions customs sessionName defaultReq contents = do
+runRepl tools commandsIn customs sessionName defaultReq contents = do
   historyPath <- getDataDir >>= \dir ->
     lookupEnv "INTELLI_MONAD_DATA_DIR" >>= \case
       Just d  -> return $ d </> "history"
@@ -378,7 +379,7 @@ runRepl tools extensions customs sessionName defaultReq contents = do
         prev <- get
         put $ prev { outputCallback = callbackOut
                    , inputCallback = callbackIn
-                   , extraCommands = extensions
+                   , commands = commandsIn
                    }
         push @p contents
-        runRepl' @p extensions
+        runRepl' @p commandsIn

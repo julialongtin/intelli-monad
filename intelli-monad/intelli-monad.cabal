@@ -38,6 +38,7 @@ library
     exposed-modules:
                   , IntelliMonad.Consume
                   , IntelliMonad.Cmd
+                  , IntelliMonad.Schema
                   , IntelliMonad.Tools.Arxiv
 
     -- Modules included in this library but not exported.
@@ -125,11 +126,15 @@ executable intelli-monad-plus
     build-depends:
         aeson,
         base == 4.*,
+        directory,
+        filepath,
         intelli-monad,
+        haskeline >= 0.8.2 && < 0.9,
         louter,
         megaparsec,
         optparse-applicative,
         text,
+        unordered-containers,
         process,
         persistent-sqlite
     hs-source-dirs:   app

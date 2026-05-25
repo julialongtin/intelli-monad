@@ -38,7 +38,7 @@ import Control.Monad (when)
 
 import Control.Monad.IO.Class (liftIO)
 
-import qualified Data.Aeson as A (Value(Array, Bool, Object, String, Null), decodeStrictText, encode)
+import qualified Data.Aeson as A (Value(Array, Bool, Object, String, Null), decodeStrictText, encode, toJSON)
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 
@@ -74,7 +74,7 @@ import qualified Louter.Client as Louter (ChatRequest(ChatRequest, reqMaxTokens,
 import System.Environment (lookupEnv)
 
 
-import IntelliMonad.BaseTypes (SessionName, KeyValue, Content, Contents, ChatCompletion(toRequest, fromResponse), ConstructorSchema(ConstructorSchema), FinishReason, HasFunctionObject, JSONSchema(schema), Schema(Array', Boolean', Enum', Integer', Maybe', Null', Number', Object', OneOfTagged, OneOfUntagged, String'), Tool, ToolProxy(ToolProxy), getFunctionDescription, getFunctionName)
+import IntelliMonad.BaseTypes (SessionName, KeyValue, Content, Contents, ChatCompletion(toRequest, fromResponse), ConstructorSchema(ConstructorSchema), Example(exampleValue), FinishReason, HasFunctionObject, JSONSchema(schema), Schema(Array', Boolean', Enum', Integer', Maybe', Null', Number', Object', OneOfTagged, OneOfUntagged, String'), Tool, ToolProxy(ToolProxy), getFunctionDescription, getFunctionName, getExamples)
 
 import IntelliMonad.Config (readConfig)
 import qualified IntelliMonad.Config as Config
@@ -235,8 +235,21 @@ newTool (Proxy :: Proxy a) =
   Louter.Tool
     { Louter.toolName = T.pack $ getFunctionName @a
     , Louter.toolDescription = Just (T.pack $ getFunctionDescription @a)
-    , Louter.toolParameters = toAeson (schema @a)
+    , Louter.toolParameters = injectExamples (toAeson (schema @a)) (getExamples @a)
     }
+
+injectExamples :: A.Value -> Maybe [Example] -> A.Value
+injectExamples inParams examples =
+  case examples of
+    Nothing -> inParams
+    Just [] -> inParams
+    Just exampleList ->
+      case inParams of
+        A.Object obj -> A.Object $
+                        HM.insert "Examples"
+                                  (A.Array $ V.fromList $ map (A.toJSON . exampleValue) exampleList)
+                                  obj
+        _ -> inParams
 
 toTools :: Louter.ChatRequest -> [Louter.Tool]
 toTools req = Louter.reqTools req
@@ -404,7 +417,6 @@ runRequestStreaming sessionName defaultReq timeout request contentCallback = do
         writeIORef finishReasonRef reason
       Louter.StreamError err -> do
         error $ T.unpack $ "Louter streaming error: " <> err
-      unknown -> liftIO $ putStrLn $ "Unhandled Louter event: " <> show unknown
 
   -- Build response from accumulated content
   fullContent <- T.concat <$> readIORef contentRef

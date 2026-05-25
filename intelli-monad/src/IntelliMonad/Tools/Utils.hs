@@ -43,11 +43,11 @@ import Data.Text.Encoding (encodeUtf8, decodeUtf8Lenient)
 
 import Data.Time (getCurrentTime)
 
-import IntelliMonad.BaseTypes (PersistentBackend, Content(Content), Contents, Message(Message, Image, ToolCall, ToolReturn), Output, Prompt, Tool(toolExec, toolFunctionName), ToolProxy(ToolProxy), User(Tool))
+import IntelliMonad.BaseTypes (PersistentBackend, Content(Content), Contents, Message(Message, Image, ToolCall, ToolReturn), MonadTerminal, Output, Prompt, Tool(toolExec, toolFunctionName), ToolProxy(ToolProxy), User(Tool))
 
 toolExec' ::
   forall t p m.
-  (PersistentBackend p, MonadIO m, MonadFail m, Tool t, FromJSON t, ToJSON (Output t)) =>
+  (PersistentBackend p, MonadIO m, MonadFail m, MonadTerminal m, Tool t, FromJSON t, ToJSON (Output t)) =>
   Text ->
   Text ->
   Text ->
@@ -79,7 +79,7 @@ toolExec' sessionName id' name' args' = do
     Just v -> return (Just v)
     Nothing -> tool1 sessionName id' name' args'
 
-mergeToolCall :: forall p m. (PersistentBackend p, MonadIO m, MonadFail m) => [ToolProxy] -> Text -> Text -> Text -> Text -> Prompt m (Maybe Content)
+mergeToolCall :: forall p m. (PersistentBackend p, MonadIO m, MonadFail m, MonadTerminal m) => [ToolProxy] -> Text -> Text -> Text -> Text -> Prompt m (Maybe Content)
 mergeToolCall [] _ _ _ _ = return Nothing
 mergeToolCall (tool : tools') sessionName id' name' args' = do
   case tool of
@@ -99,7 +99,7 @@ filterToolCall cs =
       loop (_ : cs') = loop cs'
    in loop cs
 
-tryToolExec :: forall p m. (PersistentBackend p, MonadIO m, MonadFail m) => [ToolProxy] -> Text -> Contents -> Prompt m Contents
+tryToolExec :: forall p m. (PersistentBackend p, MonadIO m, MonadFail m, MonadTerminal m) => [ToolProxy] -> Text -> Contents -> Prompt m Contents
 tryToolExec tools sessionName contents = do
   cs <- forM (filterToolCall contents) $ \(Content _ (ToolCall id' name' args') _ _) -> do
     mergeToolCall @p tools sessionName id' name' args'

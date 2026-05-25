@@ -5,19 +5,21 @@ module IntelliMonad.Consume
   , Content(..)
   , CommandSpec(..)
   , CustomInstruction(..)
+  , Example(..)
   , HasFunctionObject(..)
   , JSONSchema(..)
   , Message(..)
   , MonadTerminal(..)
   , Parser
   , Prompt
-  , Schema(Object')
+  , Schema(Boolean', Integer', Maybe', Object', String')
   , StatelessConf
   , Tool(..)
   , ToolProxy(..)
   , User(..)
   , callWithContents
   , showContents
+  , defaultCommands
   , defaultTools
   , defaultRequest
   , defaultUTCTime
@@ -44,12 +46,13 @@ import IntelliMonad.BaseTypes (
   , CommandSpec(CommandSpec)
   , Content(Content, contentUser)
   , CustomInstruction
-  , HasFunctionObject(getFieldDescription, getFunctionDescription, getFunctionName)
+  , Example(Example)
+  , HasFunctionObject(getExamples, getFieldDescription, getFunctionDescription, getFunctionName)
   , JSONSchema(schema)
   , Message(Message)
   , MonadTerminal(termInput, termOutput)
   , Prompt
-  , Schema(Object')
+  , Schema(Boolean', Integer', Maybe', Object', String')
   , Tool(Output, toolExec, toolHeader)
   , ToolProxy(ToolProxy)
   , User(Assistant, System, User)
@@ -73,7 +76,7 @@ import IntelliMonad.Prompt (
   , user
   )
 
-import IntelliMonad.Repl (lexm, parseSessionName, runRepl)
+import IntelliMonad.Repl (defaultCommands, lexm, parseSessionName, runRepl)
 
 import IntelliMonad.Tools (defaultTools)
 

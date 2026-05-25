@@ -2,12 +2,20 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+{-# LANGUAGE LambdaCase #-}
+
 module IntelliMonad.Config where
 
 import Data.Yaml
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
+
+import System.Environment (lookupEnv)
+
+import System.Directory (createDirectoryIfMissing, getHomeDirectory, doesFileExist)
+
+import System.FilePath ((</>))
 
 -- | Backend type: openai, anthropic, or gemini
 data BackendType = OpenAI | Anthropic | Gemini
@@ -35,6 +43,17 @@ data Config = Config
 
 instance FromJSON Config
 
+getConfigPath :: IO FilePath
+getConfigPath = do
+  baseDir <- lookupEnv "XDG_CONFIG_HOME" >>= \case
+    Just dirName -> return dirName
+    Nothing -> do
+      homeDir <- getHomeDirectory
+      return $ homeDir </> ".config"
+  let targetDir = baseDir </> "intelli-monad"
+  createDirectoryIfMissing True targetDir
+  return $ targetDir </> "intelli-monad.config.yaml"
+
 -- | Get whether to use streaming (defaults to True if not specified)
 getUseStreaming :: Config -> Bool
 getUseStreaming cfg = case useStreaming cfg of
@@ -43,7 +62,8 @@ getUseStreaming cfg = case useStreaming cfg of
 
 readConfig :: IO Config
 readConfig = do
-  config <- decodeFileEither "intellimonad-config.yaml"
+  path <- getConfigPath
+  config <- decodeFileEither path
   case config of
-    Left err -> error $ "Error reading config file: " ++ show err
+    Left err -> error $ "Error reading config file(" <> show path <> "): " ++ show err
     Right cfg -> return cfg

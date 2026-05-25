@@ -71,11 +71,11 @@ import qualified Data.Text.IO as T (getLine, putStrLn, putStr)
 
 import Data.Time (getCurrentTime)
 
-import qualified Louter.Types.Request as Louter (ChatRequest)
+import qualified Louter.Types.Request as Louter (ChatRequest, reqTools)
 
 import qualified System.IO as IO (hFlush, stdout)
 
-import IntelliMonad.BaseTypes (Content(Content), Contents, Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens), CustomInstructionProxy, FinishReason(FunctionCall, Length, Stop, ToolCalls), defaultUTCTime, HasFunctionObject, Hook(preHook, postHook), HookProxy(HookProxy), JSONSchema(schema), Message(Message, ToolCall, ToolReturn, Image), MonadTerminal, PersistProxy(PersistProxy), PersistentBackend(Conn, config, initialize, load, save, saveContents), Prompt, PromptEnv(PromptEnv, backend, context, customInstructions, extraCommands, hooks, inputCallback, outputCallback, timeoutSeconds, tools), Tool(Output, toolFunctionName), ToolProxy(ToolProxy), User(User), userToText)
+import IntelliMonad.BaseTypes (Content(Content), Contents, Context(Context, contextBody, contextCreated, contextHeader, contextFooter, contextRequest, contextResponse, contextSessionName, contextToolbox, contextTotalTokens), CustomInstructionProxy, FinishReason(FunctionCall, Length, Stop, ToolCalls), defaultUTCTime, HasFunctionObject, Hook(preHook, postHook), HookProxy(HookProxy), JSONSchema(schema), Message(Message, ToolCall, ToolReturn, Image), MonadTerminal, PersistProxy(PersistProxy), PersistentBackend(Conn, config, initialize, load, save, saveContents), Prompt, PromptEnv(PromptEnv, backend, commands, context, customInstructions, hooks, inputCallback, outputCallback, timeoutSeconds, tools), Tool(Output, toolFunctionName), ToolProxy(ToolProxy), User(User), userToText)
 
 import IntelliMonad.Config (readConfig)
 import qualified IntelliMonad.Config as Config (getUseStreaming)
@@ -231,23 +231,25 @@ callWithContents input = do
 
 initializePrompt :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => [ToolProxy] -> [CustomInstructionProxy] -> Text -> Louter.ChatRequest -> m PromptEnv
 initializePrompt tools customs sessionName req = do
---  config <- readConfig
   let settings = addTools tools req
   withDB @p $ \conn -> do
     load @p conn sessionName >>= \case
       Just v ->do
-        -- merge our policies with our runtime tools.
         let liveMap = (defaultRegistry tools).rawRegistry
             savedMap = v.contextToolbox.rawRegistry
+            -- merge our saved tool policies with our runtime tool set.
             merged   = ToolRegistry $ M.mapWithKey
                        (\name entry ->
                           case M.lookup name savedMap of
                             Just saved -> entry { toolPolicy = toolPolicy saved }
                             Nothing    -> entry)
                        liveMap
+            updatedReq = addTools tools (v.contextRequest { Louter.reqTools = [] })
         return $
           PromptEnv
-            { context = v { contextToolbox = merged }
+            { context = v { contextToolbox = merged,
+                            contextRequest = updatedReq
+                          }
             , tools = tools
             , customInstructions = customs
             , backend = (PersistProxy (config @p))
@@ -255,7 +257,7 @@ initializePrompt tools customs sessionName req = do
             , timeoutSeconds = Nothing
             , inputCallback = \prompt -> T.putStr prompt >> IO.hFlush IO.stdout >> fmap Just T.getLine
             , outputCallback = \text -> T.putStr text >> IO.hFlush IO.stdout
-            , extraCommands = []
+            , commands = []
             }
       Nothing -> do
         time <- liftIO getCurrentTime
@@ -280,7 +282,7 @@ initializePrompt tools customs sessionName req = do
                 , timeoutSeconds = Nothing
                 , inputCallback = \prompt -> T.putStr prompt >> IO.hFlush IO.stdout >> fmap Just T.getLine
                 , outputCallback = \text -> T.putStr text >> IO.hFlush IO.stdout
-                , extraCommands = []
+                , commands = []
                 }
         initialize @p conn (init'.context)
         return init'

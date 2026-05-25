@@ -42,10 +42,11 @@ module IntelliMonad.BaseTypes
     CustomInstruction(customHeader, customFooter),
     CustomInstructionProxy(CustomInstructionProxy),
     defaultUTCTime,
+    Example(Example, exampleDescription, exampleValue),
     EntityField(ContextSessionName, ContextId),
     FinishReason(FunctionCall, Length, Stop, ToolCalls),
     GSchema(gschema),
-    HasFunctionObject(getFieldDescription, getFunctionDescription, getFunctionName),
+    HasFunctionObject(getExamples, getFieldDescription, getFunctionDescription, getFunctionName),
     Hook(preHook, postHook),
     HookProxy(HookProxy),
     JSONSchema(schema),
@@ -56,7 +57,7 @@ module IntelliMonad.BaseTypes
     PersistProxy(PersistProxy),
     PersistentBackend(Conn, config, deleteKey, deleteSession, getKey, initialize, listKeys, listSessions, load, loadByKey, save, saveContents, setKey, setup),
     Prompt,
-    PromptEnv(PromptEnv, backend, context, customInstructions, extraCommands, hooks, inputCallback, outputCallback, timeoutSeconds, tools),
+    PromptEnv(PromptEnv, backend, commands, context, customInstructions, hooks, inputCallback, outputCallback, timeoutSeconds, tools),
     Schema(Maybe', String', Number', Integer', Object', Array', Boolean', Null', Enum', OneOfUntagged, OneOfTagged),
     SessionName,
     Tool(Output, toolExec, toolFooter, toolFunctionName, toolHeader),
@@ -76,7 +77,7 @@ import Control.Monad.IO.Class (MonadIO)
 
 import Control.Monad.Fail (MonadFail)
 
-import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode)
+import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode, Value)
 
 import Data.ByteString (ByteString, fromStrict, toStrict)
 
@@ -91,8 +92,6 @@ import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text, intercalate, pack, toLower, unpack)
 
 import Data.Time (Day(ModifiedJulianDay), UTCTime(UTCTime))
-
-import Data.Void (Void)
 
 import Database.Persist (EntityField, PersistField, PersistValue, Unique, Key, toPersistValue, fromPersistValue)
 
@@ -349,8 +348,8 @@ data PromptEnv = PromptEnv
   -- ^ The backend for prompt logging
   , hooks :: [HookProxy]
   -- ^ The hook functions before or after calling LLM
-  , extraCommands :: [CommandSpec]
-  -- ^ Commands added to the REPL by a caller.
+  , commands :: [CommandSpec]
+  -- ^ Commands available in the REPL.
   , timeoutSeconds :: Maybe Int
   -- ^ The timeout in seconds to wait for results. Given to Louter.
   , inputCallback :: Text -> IO (Maybe Text)
@@ -365,10 +364,17 @@ data PromptEnv = PromptEnv
 
 data ToolProxy = forall t. (Tool t, FromJSON t, ToJSON t, FromJSON (Output t), ToJSON (Output t), HasFunctionObject t, JSONSchema t) => ToolProxy (Proxy t)
 
+data Example = Example
+  { exampleDescription :: Text
+  , exampleValue :: Value
+  }
+  
 class HasFunctionObject r where
   getFunctionName :: String
   getFunctionDescription :: String
   getFieldDescription :: String -> String
+  getExamples :: Maybe [Example]
+  getExamples = Nothing
 
 -------------------------
 -- JSON Schema Related --
@@ -485,7 +491,7 @@ class Tool a where
   default toolFunctionName :: (HasFunctionObject a) => Text
   toolFunctionName = pack $ getFunctionName @a
 
-  toolExec :: forall p m. (MonadIO m, MonadFail m, PersistentBackend p) => a -> Prompt m (Output a)
+  toolExec :: forall p m. (MonadIO m, MonadFail m, MonadTerminal m, PersistentBackend p) => a -> Prompt m (Output a)
 
   toolHeader :: Contents
   toolHeader = []

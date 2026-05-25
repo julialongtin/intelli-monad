@@ -27,70 +27,78 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module IntelliMonad.Tools.Arxiv where
+module IntelliMonad.Tools.Arxiv
+  (
+    Arxiv
+  )
+where
 
-import qualified Codec.Picture as P
--- Import HttpClient to make the REST API call
-
--- import Network.HTTP.Conduit
-
-import Control.Exception (SomeException, catch)
+import Control.Exception (catch)
 import Control.Monad.IO.Class
-import Control.Monad.Trans.State (StateT)
-import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode, (.:))
 import qualified Data.Aeson as A
-import qualified Data.Aeson.Key as A
-import qualified Data.Aeson.KeyMap as A
-import Data.ByteString (ByteString, fromStrict, toStrict)
+import Data.ByteString (ByteString, toStrict)
 import qualified Data.ByteString.Char8 as BC
-import Data.Coerce
-import Data.Kind (Type)
-import qualified Data.Map as M
 import Data.Maybe (fromMaybe, mapMaybe)
-import Data.Proxy
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
-import Data.Time
-import qualified Data.Vector as V
-import Database.Persist
-import Database.Persist.Sqlite
-import Database.Persist.TH
 import GHC.Generics
-import Network.HTTP.Client
+import Network.HTTP.Client (HttpException, newManager, httpLbs, parseRequest, responseBody)
 import Network.HTTP.Client.TLS
 import Network.HTTP.Simple (setRequestQueryString)
 import Text.XML
-import Text.XML.Cursor (Axis, Cursor, attributeIs, checkName, content, element, fromDocument, ($//), (&/), (&//))
+import Text.XML.Cursor (Axis, Cursor, checkName, content, fromDocument, ($//), (&/))
 
-import IntelliMonad.BaseTypes (HasFunctionObject(getFieldDescription, getFunctionDescription, getFunctionName), JSONSchema, Tool(Output, toolExec))
+import IntelliMonad.BaseTypes (Example(Example), HasFunctionObject(getExamples, getFieldDescription, getFunctionDescription, getFunctionName), JSONSchema, Tool(Output, toolExec))
 
 data Arxiv = Arxiv
   { searchQuery :: Text,
-    maxResults :: Maybe Int,
-    start :: Maybe Int
+    limit :: Maybe Int,
+    offset :: Maybe Int
   }
-  deriving (Eq, Show, Generic, JSONSchema, A.FromJSON, A.ToJSON)
+  deriving (Eq, Show, Generic, JSONSchema)
+
+-- JSON ↔ Haskell mapping that translates the public key "limit" to the private field 'maxResultCount'
+instance A.FromJSON Arxiv where
+  parseJSON = A.withObject "Arxiv" $ \obj ->
+    Arxiv -- public name → internal field
+      <$> obj A..: "searchQuery"
+      <*> obj A..:? "limit"
+      <*> obj A..:? "offset"
+
+instance A.ToJSON Arxiv where
+  toJSON v@(Arxiv {}) =
+    A.object -- public name -> extracted value
+    [ "path"    A..= (searchQuery v)
+    , "limit"   A..= (limit v)
+    , "offset"  A..= (offset v)
+    ]
 
 instance HasFunctionObject Arxiv where
   getFunctionName = "search_arxiv"
   getFunctionDescription = "Search Arxiv with a keyword"
   getFieldDescription "searchQuery" = "The keyword to search for on Arxiv: This keyword is used as a input of 'http://export.arxiv.org/api/query?search_query='. "
-  getFieldDescription "maxResults" = "The maximum number of results to return. If not specified, the default is 10."
-  getFieldDescription "start" = "The start index of the results. If not specified, the default is 0."
+  getFieldDescription "limit" = "The maximum number of results to return. If not specified, the default is 10."
+  getFieldDescription "offset" = "The start index of the results. If not specified, the default is 0."
+  getFieldDescription _ = "⚠ Unknown field – check the schema."
+  getExamples = Just [Example "search for 10 articles about LLM fine tuning."
+                       $ A.object
+                         [ "searchQuery" A..= ("LLM fine tuning" :: Text)
+                         , "limit"       A..= (10 :: Int)
+                         , "offset"       A..= (0 :: Int)
+                         ]
+                      ]
 
 arxivSearch :: Arxiv -> IO ByteString
 arxivSearch Arxiv {..} = do
   manager <- newManager tlsManagerSettings
-  let request =
-        setRequestQueryString
-          [ ("search_query", Just $ T.encodeUtf8 searchQuery),
-            ("max_results", Just $ fromMaybe "10" (BC.pack . show <$> maxResults)),
-            ("start", Just $ fromMaybe "0" (BC.pack . show <$> start))
-          ]
-          "https://export.arxiv.org/api/query"
-  response <- httpLbs request manager
+  baseRequest <- parseRequest "https://export.arxiv.org/api/query"
+  let request = setRequestQueryString
+                [ ("search_query", Just $ T.encodeUtf8 searchQuery),
+                  ("limit", Just $ fromMaybe "10" (BC.pack . show <$> limit)),
+                  ("start", Just $ fromMaybe "0" (BC.pack . show <$> offset))
+                ] baseRequest
+  response <- httpLbs request manager `catch` \(e :: HttpException) -> error $ "Threw an HTTP exception: " <> show e <> "\n"
   return $ toStrict $ responseBody response
 
 element' :: Text -> Axis

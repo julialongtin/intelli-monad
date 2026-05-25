@@ -36,7 +36,7 @@ import IntelliMonad.BaseTypes (PersistentBackend)
 
 import IntelliMonad.Config (model, readConfig)
 
-import IntelliMonad.Repl (runRepl)
+import IntelliMonad.Repl (defaultCommands, runRepl)
 
 import IntelliMonad.Tools (defaultTools)
 
@@ -55,8 +55,8 @@ main = do
       Nothing -> return config.model
 
   let cmdline = argument str (metavar "SESSION_NAME" <> value "default" <> showDefault)
-      runCmd :: forall p. (PersistentBackend p) => Text -> Text -> IO ()
-      runCmd model sessionName = runRepl @p defaultTools [] [] sessionName (fromModel model) []
+      runCmd :: forall p. (PersistentBackend p) => Text -> IO ()
+      runCmd sessionName = runRepl @p defaultTools (defaultCommands @p) [] sessionName (fromModel model) []
 
   sessionName <- customExecParser (prefs showHelpOnEmpty) (info (cmdline) (fullDesc <> progDesc "intelli-monad"))
-  runCmd @SqliteConf model sessionName
+  runCmd @SqliteConf sessionName
