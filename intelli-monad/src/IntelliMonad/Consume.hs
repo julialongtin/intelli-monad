@@ -30,11 +30,13 @@ module IntelliMonad.Consume
   , model
   , parseSessionName
   , readConfig
+  , rejectUnknownKeys
   , runPrompt
   , runPromptWithValidation
   , runRepl
   , toAeson
   , user
+  , warnUnknownKeys
   )
 where
 
@@ -79,6 +81,8 @@ import IntelliMonad.Prompt (
 import IntelliMonad.Repl (defaultCommands, lexm, parseSessionName, runRepl)
 
 import IntelliMonad.Tools (defaultTools)
+
+import IntelliMonad.Tools.Utils (rejectUnknownKeys, warnUnknownKeys)
 
 import IntelliMonad.Types (
   defaultRequest

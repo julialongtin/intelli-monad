@@ -21,15 +21,21 @@
 module IntelliMonad.Tools.Utils
   (
     findToolCall
+  , rejectUnknownKeys
   , tryToolExec
+  , warnUnknownKeys
   )
 where
 
-import Control.Monad (forM)
+import Control.Monad (forM, unless)
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
-import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode)
+import Data.Aeson (FromJSON, Object, ToJSON, eitherDecode, encode)
+import Data.Aeson.Key (toText)
+import Data.Aeson.KeyMap (keys)
+
+import qualified Data.Aeson.Types as Aeson (Parser)
 
 import Data.ByteString (fromStrict, toStrict)
 
@@ -37,7 +43,7 @@ import Data.Maybe (catMaybes)
 
 import Data.Proxy (Proxy(Proxy))
 
-import Data.Text (Text)
+import Data.Text (Text, unpack)
 
 import Data.Text.Encoding (encodeUtf8, decodeUtf8Lenient)
 
@@ -116,3 +122,34 @@ findToolCall t@(ToolProxy (Proxy :: Proxy a)) (c : cs) =
         then Just c
         else findToolCall t cs
     Content _ (ToolReturn _ _ _) _ _ -> findToolCall t cs
+
+-- | Given a list of *allowed* field names, and the raw object,
+--   either:
+--     * succeed, returning the original object, or
+--     * fail with a message listing every unknown key.
+rejectUnknownKeys
+  :: [Text]            -- ^ allowed keys (e.g. ["path","recurse","limit","offset"])
+  -> Object          -- ^ the raw JSON object that was just received
+  -> Aeson.Parser Object   -- ^ same object on success, or `fail` on error
+rejectUnknownKeys allowed obj = do
+  let present   = map toText (keys obj)
+      unknown   = filter (`notElem` allowed) present
+  unless (null unknown) $
+    fail $ "Invalid argument(s): " ++ show (map unpack unknown) ++
+           ". Accepted fields are: " ++ show (map unpack allowed)
+  pure obj
+
+-- | Validate that an object only contains keys from an allow‑list.
+--   Instead of calling `fail` we return the original object **and**
+--   a list of the unknown keys (empty if everything is fine).
+warnUnknownKeys
+    :: [Text]                -- ^ allowed keys
+    -> Object              -- ^ raw JSON object
+    -> (Object, [Text])    -- ^ (object, warnings)
+warnUnknownKeys allowed obj =
+    let present = map toText (keys obj)
+        unknown = warning_message <$> filter (`notElem` allowed) present
+        warning_message t = "Warning: Extra \"" <> t <> "\" attribute not interpreted by tool."
+    in (obj, unknown)           -- the object is always returned
+
+

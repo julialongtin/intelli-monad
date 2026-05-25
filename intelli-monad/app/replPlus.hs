@@ -18,9 +18,9 @@
 
 module Main where
 
-import Prelude (Bool(False, True), Eq, FilePath, Int, IO, Show(show), String, (.), (+), (<), ($), (>>), (<>), (++), (>>=), (/=), drop, fail, filter, length, max, map, not, notElem, null, return, take)
+import Prelude (Bool(False, True), Eq, FilePath, Int, IO, Show(show), String, (.), (+), (<), ($), (>>), (<>), (>>=), (/=), drop, filter, length, max, not, null, return, take)
 
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_)
 
 import Control.Monad.IO.Class (liftIO)
 
@@ -38,7 +38,7 @@ import System.Console.Haskeline (InputT)
 
 import System.Directory (canonicalizePath, doesDirectoryExist, getCurrentDirectory, setCurrentDirectory)
 
-import System.Environment  (lookupEnv)
+import System.Environment (lookupEnv)
 
 import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 
@@ -46,10 +46,7 @@ import System.FilePath ((</>))
 
 import System.Process (readProcessWithExitCode)
 
-import qualified Data.Aeson.Types as Aeson (Parser)
 import qualified Data.Aeson as A
-import Data.Aeson.Key (toText)
-import Data.Aeson.KeyMap (keys)
 
 import qualified Data.Text  as T
 import Data.Text.IO (readFile)
@@ -79,6 +76,7 @@ import IntelliMonad.Consume
   , parseSessionName
   , runRepl
   , fromModel
+  , warnUnknownKeys
   )
 
 import IntelliMonad.Schema
@@ -86,51 +84,10 @@ import IntelliMonad.Schema
     mkSchemaFromHasFunctionObject
   )
 
--- | Given a list of *allowed* field names, and the raw object,
---   either:
---     * succeed, returning the original object, or
---     * fail with a message listing every unknown key.
-rejectUnknownKeys
-  :: [Text]            -- ^ allowed keys (e.g. ["path","recurse","limit","offset"])
-  -> A.Object          -- ^ the raw JSON object that was just received
-  -> Aeson.Parser A.Object   -- ^ same object on success, or `fail` on error
-rejectUnknownKeys allowed obj = do
-  let present   = map toText (keys obj)
-      unknown   = filter (`notElem` allowed) present
-  unless (null unknown) $
-    fail $ "Invalid argument(s): " ++ show (map unpack unknown) ++
-           ". Accepted fields are: " ++ show (map unpack allowed)
-  pure obj
-
--- | Validate that an object only contains keys from an allow‑list.
---   Instead of calling `fail` we return the original object **and**
---   a list of the unknown keys (empty if everything is fine).
-warnUnknownKeys
-    :: [Text]                -- ^ allowed keys
-    -> A.Object              -- ^ raw JSON object
-    -> (A.Object, [Text])    -- ^ (object, warnings)
-warnUnknownKeys allowed obj =
-    let present = map toText (keys obj)
-        unknown = warning_message <$> filter (`notElem` allowed) present
-        warning_message t = "Warning: Extra \"" <> t <> "\" attribute not interpreted by tool."
-    in (obj, unknown)           -- the object is always returned
-
--- ── Hello World tool ─────────────────────────────────────────────────────────
-
-data Hello = Hello { name :: Text }
-  deriving (Eq, Show, Generic, JSONSchema, A.FromJSON, A.ToJSON)
-
-instance HasFunctionObject Hello where
-  getFunctionName        = "hello"
-  getFunctionDescription = "Say hello to someone by name"
-  getFieldDescription "name" = "The name to greet. For example: \"Juri\""
-  getFieldDescription _      = "⚠ Unknown field – check the schema."
-  getExamples = Just $ [ Example "say Hello to World" $ A.object [ "name" A..= ("World" :: Text)] ]
-
-instance Tool Hello where
-  data Output Hello = HelloOutput { greeting :: Text }
-    deriving (Eq, Show, Generic, A.FromJSON, A.ToJSON)
-  toolExec args = return $ HelloOutput $ "Hello, " <> args.name <> "!"
+import Tools.Hello
+  (
+    Hello
+  )
 
 -- ── Git ls file tool ─────────────────────────────────────────────────────────
 
