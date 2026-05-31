@@ -6,7 +6,7 @@ packages:
 optional-packages:
         ../*.cabal
 
-source-repository-package
-        type: git
-        location: https://github.com/julialongtin/louter.git
-        tag: 4db253f9ec37d036499ee57c96900ba2be8dc134
+--source-repository-package
+--        type: git
+--        location: https://github.com/julialongtin/louter.git
+--        tag: 4db253f9ec37d036499ee57c96900ba2be8dc134
