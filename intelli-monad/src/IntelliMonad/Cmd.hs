@@ -42,6 +42,9 @@ import IntelliMonad.Tools (defaultTools)
 
 import IntelliMonad.Types (defaultRequest)
 
+-- Our request contains the target server, and model type.
+import Louter.Types.Request (ChatRequest)
+
 opts :: Options.Applicative.Parser ReplCommand
 opts =
   subparser
@@ -76,7 +79,6 @@ runCmd cmd = do
   let tools = defaultTools
       customs = []
       sessionName = "default"
-      defaultReq = defaultRequest
   runInputT
     ( Settings
         { complete = completeFilename,
@@ -99,4 +101,5 @@ main = do
       Nothing -> return config.model
 
   cmd <- customExecParser (prefs showHelpOnEmpty) (info (helper <*> opts) (fullDesc <> progDesc "intelli-monad"))
-  runCmd @SqliteConf cmd
+
+  runCmd @SqliteConf (fromModel model) cmd
